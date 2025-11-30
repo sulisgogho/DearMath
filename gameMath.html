@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>DEAR : Discovering Easy with GCD & LCM Attractive Resources</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .gradient-border-wrap { position: relative; }
+    .gradient-border-wrap > .inner { position: relative; z-index: 2; border-radius: 1rem; }
+    .soft-card { box-shadow: 0 8px 20px rgba(99,102,241,0.08); }
+    #test-results { position: fixed; right: 12px; bottom: 12px; z-index: 60; max-width: 360px; }
+    #error-overlay { position: fixed; inset: 12px; z-index: 9999; background: rgba(0,0,0,0.6); color: #fff; padding: 18px; border-radius: 12px; display: none; overflow:auto; }
+    #error-overlay pre { white-space: pre-wrap; font-size: 13px; }
+    
+    /* Animations from Game Mode */
+    @keyframes fadein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes bubble {0%{transform:scale(0.9);}50%{transform:scale(1.05);}100%{transform:scale(1);} }
+    @keyframes pop {0%{transform:scale(0.8);opacity:0;}100%{transform:scale(1);opacity:1;}}
+    .animate-bubble{animation:bubble 0.35s ease;}
+    .animate-pop{animation:pop 0.25s ease;}
+    .animate-fadein{animation:fadein 0.3s ease-out;}
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-amber-50">
+  <div id="root" class="min-h-screen"></div>
+  
+  <div id="error-overlay" role="alert" aria-hidden="true"><strong>Script Error</strong><pre id="error-text"></pre><button id="error-close" style="margin-top:8px;padding:8px 12px;border-radius:8px;border:0;cursor:pointer">Close</button></div>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    // --- Global Error Handler ---
+    (function attachGlobalErrorHandler(){
+      function show(msg){
+        try{
+          const o=document.getElementById('error-overlay'); const t=document.getElementById('error-text');
+          if(o && t){ t.textContent = msg; o.style.display='block'; o.setAttribute('aria-hidden','false'); }
+        }catch(e){ console.error('overlay failed', e); }
+      }
+      window.addEventListener('error', function(ev){ const msg = `${ev.message || 'Unknown error'}\n${ev.filename || ''}:${ev.lineno || ''}:${ev.colno || ''}\n${ev.error && ev.error.stack? ev.error.stack : ''}`; console.error(msg); show(msg); });
+    })();
+
+    // --- Main Application ---
+    (function runWhenReady(){
+      const MAX_TRIES = 200; let tries = 0;
+      function ready(){ return !!(window.React && window.ReactDOM && window.Babel); }
+
+      function boot(){
+        const { useState, useMemo, useRef, useEffect } = React;
+
+        // --- Shared Helpers ---
+        const safeNum = v => { const n = Number(v); if(!Number.isFinite(n) || n <= 0) return null; return Math.round(n); };
+        const factorsOf = n => { const out=[]; if(!Number.isFinite(n) || n <= 0) return out; for(let i=1;i<=200;i++) if(n%i===0) out.push(i); return out; };
+        const multiplesOf = n => { const out=[]; if(!Number.isFinite(n) || n <= 0) return out; for(let i=n;i<=200;i+=n) out.push(i); return out; };
+        const gcd = (a,b) => { if(!a||!b) return null; a=Math.abs(a); b=Math.abs(b); while(b){const t=a%b; a=b; b=t;} return a; };
+        const lcm = (a,b) => { if(!a||!b) return null; return Math.abs((a/gcd(a,b))*b); };
+
+        // --- Component: Board View (Original GameBoard) ---
+        function BoardView({ navigateToGameMode }) {
+          const SIZE = 200;
+          const [showHelp, setShowHelp] = useState(false);
+          const [boardDisabled, setBoardDisabled] = useState(false);
+          const [numberA, setNumberA] = useState("");
+          const [numberB, setNumberB] = useState("");
+          const [mode, setMode] = useState("FPB");
+          const [placing, setPlacing] = useState(null);
+          const [pinsA, setPinsA] = useState(() => Array(SIZE+1).fill(false));
+          const [pinsB, setPinsB] = useState(() => Array(SIZE+1).fill(false));
+          const [answers, setAnswers] = useState(() => Array(SIZE+1).fill(false));
+          const [message, setMessage] = useState("");
+          const [effect, setEffect] = useState({type:null,number:null});
+          const [wrongPins, setWrongPins] = useState(() => Array(SIZE+1).fill(false));
+          const [wrongAnswerIndex, setWrongAnswerIndex] = useState(null);
+
+          const correctSoundRef = useRef(null);
+          const wrongSoundRef = useRef(null);
+
+          const commonFactors = useMemo(()=>{ const a=safeNum(numberA); const b=safeNum(numberB); if(!a||!b) return []; const fa=new Set(factorsOf(a)); return factorsOf(b).filter(x=>fa.has(x)); }, [numberA, numberB]);
+          const expectedFPB = useMemo(()=>{ if(!commonFactors||commonFactors.length===0) return null; return Math.max(...commonFactors); }, [commonFactors]);
+          const expectedKPK = useMemo(()=>{ const a=safeNum(numberA); const b=safeNum(numberB); if(!a||!b) return null; const g=gcd(a,b); if(!g) return null; return Math.abs((a/g)*b); }, [numberA, numberB]);
+
+          const playSound = (isCorrect) => {
+            try {
+              if (isCorrect && correctSoundRef.current) {
+                correctSoundRef.current.currentTime = 0;
+                correctSoundRef.current.play().catch(e => console.log('Audio play blocked', e));
+              } else if (!isCorrect && wrongSoundRef.current) {
+                wrongSoundRef.current.currentTime = 0;
+                wrongSoundRef.current.play().catch(e => console.log('Audio play blocked', e));
+              }
+            } catch (e) { console.error("Sound error", e); }
+          };
+
+          const onCellClick = n => {
+            if(boardDisabled) return;
+            if(placing===null) return; 
+
+            if(placing==="A"||placing==="B"){
+              const target = placing==="A" ? safeNum(numberA) : safeNum(numberB);
+              const validList = mode==="FPB" ? factorsOf(target) : multiplesOf(target);
+              if(placing==="A") setPinsA(prev=>{ const c = prev.slice(); c[n] = !c[n]; return c; });
+              else setPinsB(prev=>{ const c = prev.slice(); c[n] = !c[n]; return c; });
+              setWrongPins(prev=>{ const c = prev.slice(); c[n] = !validList.includes(n); return c; });
+              setMessage("");
+              return;
+            }
+
+            if(placing==="ANSWER"){
+              setAnswers(()=>{ const c=Array(SIZE+1).fill(false); c[n]=true; return c; });
+              const expected = mode==="FPB" ? expectedFPB : expectedKPK;
+              if(expected===null){ setMessage('KPK berada di luar rentang 1–200. Pilih bilangan lain.'); return; }
+              if(n===expected){ 
+                setMessage('✅ Benar! Kamu Hebat 🤩'); 
+                setEffect({type:'flower',number:n}); 
+                setWrongAnswerIndex(null); 
+                playSound(true);
+              } else { 
+                setMessage('❌ Salah! Ayo coba lagi 💪'); 
+                setEffect({type:'fire',number:n}); 
+                setWrongAnswerIndex(n); 
+                playSound(false);
+              }
+            }
+          };
+
+          const handleSelectAnswer = () => {
+            const expected = mode==="FPB" ? expectedFPB : expectedKPK;
+            if(mode==="KPK" && expected && expected>SIZE){ clearPins(); setMessage('KPK berada di luar rentang 1–200. Bilangan dan pin telah di-reset. Pilih bilangan lain.'); return; }
+            if(expected===null){ setMessage('KPK berada di luar rentang 1–200. Pilih bilangan lain.'); return; }
+            setBoardDisabled(false); setPlacing('ANSWER');
+          };
+
+          const autoPlace = () => {
+            const newA = Array(SIZE+1).fill(false);
+            const newB = Array(SIZE+1).fill(false);
+            const a = safeNum(numberA); const b = safeNum(numberB);
+            const listA = a ? (mode==="FPB" ? factorsOf(a) : multiplesOf(a)) : [];
+            const listB = b ? (mode==="FPB" ? factorsOf(b) : multiplesOf(b)) : [];
+            listA.forEach(x=>{ if(x>=1 && x<=SIZE) newA[x]=true; });
+            listB.forEach(x=>{ if(x>=1 && x<=SIZE) newB[x]=true; });
+            setPinsA(newA); setPinsB(newB); setWrongPins(Array(SIZE+1).fill(false));
+            setMessage(mode==="FPB" ? 'Pin telah ditempatkan pada faktor dari masing-masing bilangan' : 'Pin telah ditempatkan pada kelipatan dari masing-masing bilangan');
+            setBoardDisabled(false);
+          };
+
+          const clearPins = () => {
+            setPinsA(Array(SIZE+1).fill(false));
+            setPinsB(Array(SIZE+1).fill(false));
+            setAnswers(Array(SIZE+1).fill(false));
+            setWrongPins(Array(SIZE+1).fill(false));
+            setMessage("");
+            setEffect({type:null,number:null});
+            setWrongAnswerIndex(null);
+            setNumberA(""); setNumberB("");
+            setPlacing(null); setBoardDisabled(false);
+          };
+
+          const allEmojis = ['🍎','🍊','🍉','🍇','🍓','🍒','🍑','🍍','🥭','🥝','🍌','🌼','🌺','🌻','🌷','🌹','🌵','🍀','🍕','🍔','🍤','🍗','🍧','🍭','🥕','🥑','🍏','🍹','🍡','🍰','🍩','🥧'];
+          const emojiDecor = {}; for(let i=1;i<=SIZE;i++){ if(i%2===1) emojiDecor[i]=allEmojis[(i-1)%allEmojis.length]; }
+          const colorfulBackgrounds = ['bg-red-200','bg-blue-200','bg-green-200','bg-purple-200','bg-pink-200','bg-orange-200','bg-teal-200','bg-cyan-200'];
+          const colorfulTextColors = ['text-red-700','text-blue-700','text-green-700','text-purple-700','text-pink-700','text-orange-700','text-teal-700','text-cyan-700'];
+
+          return (
+            <div className="p-4 max-w-full mx-auto relative bg-amber-50 flex flex-col gap-4 animate-fadein">
+              <audio ref={correctSoundRef} src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" preload="auto" />
+              <audio ref={wrongSoundRef} src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto" />
+
+              {message && (
+                <div className="fixed top-32 left-1/2 -translate-x-1/2 z-50 bg-pink-100 shadow-2xl border border-pink-300 px-6 py-4 rounded-2xl text-sm font-semibold flex flex-col items-center gap-3 animate-bounce-in">
+                  <span className="text-center w-full">{message}</span>
+                  <button onClick={()=>{ setMessage(''); setEffect({type:null,number:null}); setWrongAnswerIndex(null); }} className="mt-1 w-full bg-pink-300 py-2 rounded-lg font-semibold text-xs hover:bg-pink-400 transition">Tutup</button>
+                </div>
+              )}
+
+              {showHelp && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm">
+                  <div className="bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50 rounded-2xl p-5 max-w-sm w-full shadow-xl border-2 border-purple-100 text-sm space-y-3">
+                    <h2 className="text-center text-lg font-extrabold text-blue-400 tracking-wide mb-2 drop-shadow">Petunjuk Permainan</h2>
+                    <div className="overflow-y-auto max-h-[60vh] pr-2">
+                      <ol className="list-decimal pl-5 space-y-2 text-sm leading-relaxed text-gray-700">
+                        <li>Pilih mode (FPB/KPK)</li>
+                        <li>Masukkan bilangan yang akan dicari FPB/KPK-nya</li>
+                        <li>Klik <b>Tempatkan pin A</b>, kemudian klik bilangan pada papan yang merupakan faktor atau kelipatan dari bilangan A</li>
+                        <li>Klik <b>Tempatkan pin B</b>, kemudian klik bilangan pada papan yang merupakan faktor atau kelipatan dari bilangan B</li>
+                        <li>Untuk mencari <b>FPB</b>, pilih bilangan terbesar yang memiliki dua pin</li>
+                        <li>Untuk mencari <b>KPK</b>, pilih bilangan terkecil yang memiliki dua pin</li>
+                        <li>Klik <b>Pilih Jawaban</b>, lalu pilih jawaban pada papan</li>
+                        <li>Gunakan <b>Auto place</b> jika kesulitan menentukan faktor atau kelipatan dari bilangan</li>
+                        <li>Klik <b>Clear</b> untuk mulai ulang</li>
+                      </ol>
+                    </div>
+                    <button onClick={()=>setShowHelp(false)} className="mt-3 w-full bg-indigo-200 py-2 rounded-lg font-semibold hover:bg-indigo-300 transition">Tutup</button>
+                  </div>
+                </div>
+              )}
+
+              <h2 className="text-center text-lg font-extrabold text-blue-500 tracking-wide mb-2 drop-shadow uppercase">DEAR : Discovering Easy with GCD & LCM Attractive Resources</h2>
+
+              <div className="w-full bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl shadow p-4 space-y-4 border-2 border-indigo-200 relative">
+                <button onClick={()=>setShowHelp(true)} className="absolute top-3 right-3 px-3 py-1 rounded-lg bg-white/50 hover:bg-white shadow font-semibold text-2xl transition">?</button>
+
+                <div className="flex flex-col items-center gap-2">
+                  <label className="text-sm font-medium">Mode</label>
+                  <div className="flex gap-2">
+                    <button onClick={()=>{ clearPins(); setMode('FPB'); setBoardDisabled(false); }} className={`px-4 py-2 rounded-full border text-sm transition ${mode==='FPB'?'bg-green-300 shadow-inner font-bold':'bg-white shadow hover:bg-gray-50'}`}>FPB</button>
+                    <button onClick={()=>{ clearPins(); setMode('KPK'); setBoardDisabled(false); }} className={`px-4 py-2 rounded-full border text-sm transition ${mode==='KPK'?'bg-green-300 shadow-inner font-bold':'bg-white shadow hover:bg-gray-50'}`}>KPK</button>
+                    <button onClick={navigateToGameMode} className="px-4 py-2 rounded-full border text-sm bg-yellow-200 hover:bg-yellow-300 font-semibold shadow transition">Mode Game 🎮</button>
+                  </div>
+                </div>
+
+                <div className="flex flex-row gap-4 w-full">
+                  <div className="flex flex-col w-1/2">
+                    <label className="text-sm font-medium text-blue-800">Bilangan A</label>
+                    <input type="number" min={1} max={SIZE} placeholder="Mis: 12" value={numberA} onChange={(e)=>{ setNumberA(e.target.value); setPinsA(Array(SIZE+1).fill(false)); setWrongPins(prev=>prev.map(()=>false)); setAnswers(Array(SIZE+1).fill(false)); setEffect({type:null,number:null}); setWrongAnswerIndex(null); }} className="mt-1 w-full p-2 rounded-lg border-2 border-blue-200 focus:border-blue-400 outline-none text-center text-lg shadow-sm" />
+                  </div>
+                  <div className="flex flex-col w-1/2">
+                    <label className="text-sm font-medium text-pink-800">Bilangan B</label>
+                    <input type="number" min={1} max={SIZE} placeholder="Mis: 18" value={numberB} onChange={(e)=>{ setNumberB(e.target.value); setPinsB(Array(SIZE+1).fill(false)); setWrongPins(prev=>prev.map(()=>false)); setAnswers(Array(SIZE+1).fill(false)); setEffect({type:null,number:null}); setWrongAnswerIndex(null); }} className="mt-1 w-full p-2 rounded-lg border-2 border-pink-200 focus:border-pink-400 outline-none text-center text-lg shadow-sm" />
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={()=>{ setPlacing('A'); setBoardDisabled(false); }} className={`flex-1 py-3 rounded-xl font-semibold text-sm transition shadow ${placing==='A'?'bg-blue-400 text-white ring-2 ring-blue-200':'bg-white border hover:bg-blue-50 text-blue-600'}`}>Tempatkan Pin A</button>
+                  <button onClick={()=>{ setPlacing('B'); setBoardDisabled(false); }} className={`flex-1 py-3 rounded-xl font-semibold text-sm transition shadow ${placing==='B'?'bg-pink-400 text-white ring-2 ring-pink-200':'bg-white border hover:bg-pink-50 text-pink-600'}`}>Tempatkan Pin B</button>
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={handleSelectAnswer} className={`flex-1 py-2 rounded-xl font-semibold text-sm transition shadow ${placing==='ANSWER'?'bg-yellow-400 text-yellow-900 ring-2 ring-yellow-200':'bg-white border hover:bg-yellow-50 text-yellow-700'}`}>Pilih Jawaban</button>
+                  <button onClick={autoPlace} className="flex-1 py-2 rounded-xl bg-indigo-200 hover:bg-indigo-300 text-indigo-800 font-semibold text-sm transition shadow">Auto Place</button>
+                  <button onClick={clearPins} className="flex-1 py-2 rounded-xl bg-red-100 hover:bg-red-200 text-red-700 font-semibold text-sm transition shadow">Reset</button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 overflow-y-auto max-h-[60vh] bg-white/80 backdrop-blur rounded-2xl shadow-xl p-4 border-4 border-gray-200 bg-clip-padding relative gradient-border-wrap">
+                <div className="inner">
+                  <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                    {Array.from({ length: SIZE }, (_, i)=>i+1).map(n=>{
+                      const a=pinsA[n]; const b=pinsB[n]; const ans=answers[n]; const wrong=wrongPins[n]; const isWrongAnswer=wrongAnswerIndex===n;
+                      
+                      let bgClass = colorfulBackgrounds[n%colorfulBackgrounds.length];
+                      if (ans) bgClass = isWrongAnswer ? 'bg-red-500 text-white' : 'bg-yellow-300 ring-4 ring-yellow-200 z-10';
+                      else if (wrong) bgClass = 'bg-gray-300 opacity-50';
+
+                      const showEffect = effect.number===n ? effect.type : null;
+                      
+                      return (
+                        <button key={n} disabled={boardDisabled} onClick={()=>onCellClick(n)} className={`relative aspect-square rounded-xl border-2 font-extrabold text-sm transition-all duration-200 ${bgClass} shadow-md ${boardDisabled?'opacity-60 cursor-not-allowed':'hover:scale-105 hover:z-20 hover:shadow-lg'}`}>
+                          <div className={`absolute top-1 left-1 text-xs font-extrabold ${ans ? 'text-black' : colorfulTextColors[n%colorfulTextColors.length]}`}>{n}</div>
+                          {n%2===1 && emojiDecor[n] && <div className="absolute top-2 right-2 text-xl select-none opacity-80">{emojiDecor[n]}</div>}
+                          
+                          <div className="absolute bottom-1 left-1 flex gap-1">
+                            {a && <div className="w-3 h-3 rounded-full bg-blue-600 border border-white shadow-sm" title="Pin A"></div>}
+                            {b && <div className="w-3 h-3 rounded-full bg-pink-600 border border-white shadow-sm" title="Pin B"></div>}
+                          </div>
+
+                          {showEffect==='flower' && <div className="absolute inset-0 flex items-center justify-center text-4xl animate-ping">🌸</div>}
+                          {showEffect==='fire' && <div className="absolute inset-0 flex items-center justify-center text-4xl animate-pulse">❌</div>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // --- Component: Game Mode View ---
+        function GameModeView({ navigateBack }) {
+          const tileColors = ['bg-purple-200','bg-blue-200','bg-pink-200','bg-green-200','bg-cyan-200','bg-cyan-200'];
+          const numberTextColors = ['text-purple-700','text-blue-700','text-pink-700','text-green-700','text-cyan-700','text-cyan-700'];
+
+          // Redefine locally or use shared
+          const gcd = (a,b)=>{ a=Math.abs(a||0); b=Math.abs(b||0); while(b){ const t=a%b; a=b; b=t;} return a; };
+          const lcm = (a,b)=>{ const g=gcd(a,b); if(!g) return Math.abs(a*b); return Math.abs((a/g)*b); };
+
+          const [level,setLevel] = useState(1);
+          const [score,setScore] = useState(0);
+          const [wrongCount,setWrongCount] = useState(0);
+          const [A,setA] = useState(null);
+          const [B,setB] = useState(null);
+          const [answer,setAnswer] = useState(null);
+          const [choices,setChoices] = useState([]);
+          const [modeText,setModeText] = useState('FPB');
+          const [popup,setPopup] = useState(null);
+          const [questionCount, setQuestionCount] = useState(0);
+          const [levelComplete, setLevelComplete] = useState(null);
+          const [answerColorIndex, setAnswerColorIndex] = useState(0);
+          const [gameOver, setGameOver] = useState(false);
+          const caps = {1:50,2:200,3:1000};
+          const lastWereBothOdd = useRef(false);
+
+          // Use refs for audio to match parent style
+          const correctSoundRef = useRef(null);
+          const wrongSoundRef = useRef(null);
+
+          const randInt = (min,max)=> Math.floor(Math.random()*(max-min+1))+min;
+
+          const generateQuestion = ()=>{
+            if(levelComplete || gameOver) return;
+
+            let min,max;
+            if(level===1){ min=2; max=20; }
+            else if(level===2){ min=20; max=50; }
+            else { min=50; max=100; }
+
+            let a,b;
+            let safety=0;
+            while(true){
+              safety++;
+              a = randInt(min,max);
+              b = randInt(min,max);
+              if(a===b) continue;
+              const bothOdd = (a%2===1 && b%2===1);
+              if(bothOdd && lastWereBothOdd.current) continue;
+              break;
+              if(safety>5000) break;
+            }
+
+            const useFPB = Math.random()<0.5;
+            setModeText(useFPB ? 'FPB' : 'KPK');
+
+            let correct = useFPB ? gcd(a,b) : lcm(a,b);
+
+            // Refine question to avoid trivial 1s or huge LCMs
+            if(useFPB && correct === 1){
+              let tries=0;
+              while(correct === 1 && tries < 500){
+                a = randInt(min,max);
+                b = randInt(min,max);
+                if(a===b){ tries++; continue; }
+                const g = gcd(a,b);
+                if(g>1){ correct=g; break; }
+                tries++;
+              }
+            }
+
+            if(!useFPB && correct > caps[level]){
+              let tries=0;
+              while(correct > caps[level] && tries < 500){
+                a = randInt(min,max);
+                b = randInt(min,max);
+                if(a===b){ tries++; continue; }
+                correct = lcm(a,b);
+                tries++;
+              }
+            }
+
+            // Fallbacks
+            if(useFPB && correct === 1){
+              outerFPB:
+              for(let i=min;i<=max;i++){
+                for(let j=i+1;j<=max;j++){
+                  if(gcd(i,j)>1){ a=i; b=j; correct=gcd(i,j); break outerFPB; }
+                }
+              }
+            }
+            if(!useFPB && correct > caps[level]){
+              a = min; b = min+1; correct = lcm(a,b);
+            }
+
+            const correctInt = Math.max(1, Math.round(correct || 1));
+            const finalAnswer = (correctInt === 1 && useFPB) ? 2 : correctInt;
+
+            const opts = new Set([finalAnswer]);
+            const maxRange = Math.max(finalAnswer * 2, 10);
+            let attempts = 0;
+            while(opts.size < 10 && attempts < 2000){
+              attempts++;
+              const delta = Math.max(1, Math.floor(finalAnswer * 0.35));
+              const low = Math.max(1, finalAnswer - delta);
+              const high = Math.min(maxRange, finalAnswer + delta + 5);
+              const candidate = randInt(low, high);
+              if(candidate <= 0 || candidate === finalAnswer) continue;
+              opts.add(candidate);
+            }
+
+            while(opts.size < 10){ opts.add(randInt(1, Math.max(finalAnswer*2, 10))); }
+
+            const arr = Array.from(opts).sort(()=>Math.random()-0.5);
+            const idx = arr.findIndex(x=>x===finalAnswer);
+            const colorIndex = idx === -1 ? 0 : idx % tileColors.length;
+
+            setA(a); setB(b);
+            setAnswer(finalAnswer);
+            setChoices(arr);
+            setAnswerColorIndex(colorIndex);
+
+            lastWereBothOdd.current = (a%2===1 && b%2===1);
+          };
+
+          useEffect(()=>{
+            setScore(0);
+            setWrongCount(0);
+            setQuestionCount(0);
+            setLevelComplete(null);
+            setGameOver(false);
+            generateQuestion();
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+          },[level]);
+
+          const playSound = (isCorrect)=>{ 
+            try{ 
+               const s = isCorrect ? correctSoundRef.current : wrongSoundRef.current;
+               if(s){ s.currentTime=0; s.play().catch(()=>{}); } 
+            }catch(e){} 
+          };
+
+          const pick = (val)=>{
+            if(gameOver || levelComplete) return;
+            const correctAns = val === answer;
+
+            if(correctAns){
+              setScore(prev=> prev + 20);
+              setPopup('Jawaban Benar');
+              playSound(true);
+              setWrongCount(0);
+            } else {
+              setPopup('Jawaban Salah');
+              playSound(false);
+              setWrongCount(prev=>{
+                const next = prev + 1;
+                if(next >= 3){
+                  setTimeout(()=>{
+                    setPopup(null);
+                    setGameOver(true);
+                  }, 400);
+                }
+                return next;
+              });
+            }
+
+            setTimeout(()=>{
+              if(gameOver) return;
+              setPopup(null);
+              setQuestionCount(prev => {
+                const next = prev + 1;
+                if(next >= 5){
+                  setLevelComplete(level);
+                  return 0;
+                }
+                generateQuestion();
+                return next;
+              });
+            }, 700);
+          };
+
+          const restartLevel = ()=>{
+            setScore(0);
+            setWrongCount(0);
+            setQuestionCount(0);
+            setLevelComplete(null);
+            setGameOver(false);
+            generateQuestion();
+          };
+
+          const continueToNextLevel = ()=>{
+            setLevel(prev=> prev < 3 ? prev + 1 : 1);
+            setScore(0);
+            setWrongCount(0);
+            setQuestionCount(0);
+            setLevelComplete(null);
+            setTimeout(()=> generateQuestion(), 50);
+          };
+
+          return (
+            <div className="w-full min-h-screen flex items-center justify-center p-4 bg-orange-50 animate-fadein">
+              <audio ref={correctSoundRef} src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg" preload="auto" />
+              <audio ref={wrongSoundRef} src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg" preload="auto" />
+              
+              <div className="w-full max-w-xl mx-auto p-6 bg-orange-100 rounded-3xl shadow-xl border border-gray-200 relative">
+                <h2 className="text-3xl font-bold text-center text-orange-400 tracking-tight">GAME MODE</h2>
+
+                <div className="flex justify-between items-center text-lg font-medium mt-4 text-grey-700">
+                  <div>Level: {level}</div>
+                  <div className="text-sm opacity-80">Soal ke: {Math.min(questionCount+1,5)} / 5</div>
+                  <div>Skor: {score}</div>
+                </div>
+
+                <div className="mt-6 p-6 bg-gray-50 rounded-2xl shadow-inner border border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="text-sm text-gray-500 text-center">Bilangan A</div>
+                      <div className={`text-4xl font-bold ${numberTextColors[answerColorIndex]} text-center`}>{A ?? '?'}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-500 text-center">Bilangan B</div>
+                      <div className={`text-4xl font-bold ${numberTextColors[answerColorIndex]} text-center`}>{B ?? '?'}</div>
+                    </div>
+                  </div>
+                  <div className="text-xs mt-2 text-gray-500 text-center">(Cari: <span className="font-semibold text-gray-700 text-lg">{modeText}</span>)</div>
+                </div>
+
+                <div className="grid grid-cols-5 gap-3 mt-6">
+                  {choices.map((num,i)=> (
+                    <button
+                      key={i}
+                      onClick={()=>pick(num)}
+                      className={`p-4 rounded-2xl font-extrabold ${tileColors[i%tileColors.length]} shadow hover:brightness-95 transition active:scale-95`}
+                    >
+                      <span className={`text-lg ${numberTextColors[i%numberTextColors.length]}`}>{num}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex gap-3 justify-end mt-8">
+                  <button onClick={()=>{ setLevel(1); restartLevel(); }} className="px-4 py-2 bg-gray-700 text-white rounded-lg shadow hover:bg-gray-800 transition">Reset</button>
+                  <button onClick={navigateBack} className="px-4 py-2 bg-red-600 text-white rounded-lg shadow hover:bg-red-700 transition">Kembali</button>
+                </div>
+
+                {/* popup */}
+                {popup && (
+                  <div className="fixed left-1/2 -translate-x-1/2 top-20 z-50 animate-[fadein_0.2s]">
+                    <div className={`px-6 py-3 rounded-2xl text-white font-semibold shadow-xl ${popup==='Jawaban Benar' ? 'bg-green-500 animate-pop' : 'bg-red-500 animate-bubble'}`}>
+                      {popup}
+                    </div>
+                  </div>
+                )}
+
+                {/* Game Over modal */}
+                {gameOver && (
+                  <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-3xl shadow-2xl text-center w-80 border border-gray-200">
+                      <h3 className="text-xl font-bold text-gray-800 mb-3">Game Over</h3>
+                      <p className="text-sm text-gray-600 mb-2">Kamu salah menjawab 3 kali.</p>
+                      <p className="text-md font-semibold text-gray-800">Skor Akhir: {score}</p>
+                      <div className="flex justify-center gap-4 mt-5">
+                        <button className="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400 transition" onClick={()=>{ setGameOver(false); restartLevel(); }}>Coba Lagi</button>
+                        <button className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition" onClick={()=>{ setGameOver(false); navigateBack(); }}>Keluar</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* level complete modal */}
+                {levelComplete && (
+                  <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-3xl shadow-2xl text-center w-80 animate-[fadein_0.15s] border border-gray-200">
+                      <h3 className="text-xl font-bold text-gray-800 mb-3">Selamat! Kamu telah menyelesaikan Level {levelComplete} 🎉</h3>
+                      <p className="text-md font-semibold text-gray-800">Skor Akhir: {score}</p>
+                      <div className="flex justify-center gap-4 mt-5">
+                        <button
+                          className="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400 transition"
+                          onClick={navigateBack}
+                        >Keluar</button>
+                        <button
+                          className="px-4 py-2 bg-green-500 text-white rounded-lg shadow hover:bg-green-600 transition"
+                          onClick={()=>{
+                            continueToNextLevel();
+                          }}
+                        >Lanjut Level</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        // --- Root App Component ---
+        function App() {
+          const [view, setView] = useState('board'); // 'board' or 'game'
+
+          return (
+            <div className="min-h-screen">
+              {view === 'board' ? (
+                <BoardView navigateToGameMode={() => setView('game')} />
+              ) : (
+                <GameModeView navigateBack={() => setView('board')} />
+              )}
+            </div>
+          );
+        }
+
+        const rootEl = document.getElementById('root');
+        ReactDOM.createRoot(rootEl).render(<App />);
+      }
+
+      if(ready()){ try{ boot(); }catch(e){ console.error('Error booting app', e); } }
+      else {
+        const interval = setInterval(()=>{
+          tries++;
+          if(ready()){ clearInterval(interval); try{ boot(); }catch(e){ console.error('Error booting app', e); } }
+          else if(tries>MAX_TRIES){ clearInterval(interval); console.error('Required globals missing.'); }
+        }, 50);
+      }
+    })();
+  </script>
+</body>
+</html>
